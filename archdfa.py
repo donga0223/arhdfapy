@@ -33,7 +33,7 @@ class ARCHDFA():
     def __init__(self, num_timesteps=None, num_series=None, num_horizons = None,
                  num_factors=1, p=1, q=1, intercept_by_series=False, 
                  ar_constraint='[0,1]', sigma_factors_model='AR', 
-                 loadings_constraint='positive', Psi=0.5, h_rho = 0.8):
+                 loadings_constraint='positive'):
         '''
         Initialize an ARCHDFA model
         
@@ -62,11 +62,7 @@ class ARCHDFA():
         loadings_constraint: string
             Constraints on factor loadings. Either 'simplex' or 'positive'.
             Defaults to 'positive'.
-        Psi: float
-            make horizon variance increased as horizons increased.
-        h_rho : float
-            make horizon correlation matrix as AR(1) process 
-        
+
         Returns
         -------
         None
@@ -110,17 +106,7 @@ class ARCHDFA():
         
         if loadings_constraint not in ['simplex', 'positive']:
             raise ValueError("loadings_constraint must be 'simplex' or 'positive'")
-        self.loadings_constraint = loadings_constraint
-
-        if type(Psi) is not float or Psi <= 0:
-            raise ValueError('Psi must be a positive float')
-        self.Psi = Psi
-
-        if type(h_rho) is not float or h_rho <= 0:
-            raise ValueError('h_rho must be a positive float')
-        self.h_rho = h_rho
-
-    
+        self.loadings_constraint = loadings_constraint 
     
     def model(self, y=None, nan_inds=None, num_nans=None):
         '''
@@ -233,13 +219,34 @@ class ARCHDFA():
             sample_shape=(self.q, 1)
         )
 
+        h_rho = numpyro.sample(
+            'h_rho',
+            dist.Uniform(0,1),
+            sample_shape=(1,)
+        )
+
+        Psi_a = numpyro.sample(
+            'Psi_a',
+            #dist.Normal(0,1),
+            dist.Gamma(1,1),
+            sample_shape=(1,)
+        )
+
+        Psi_b = numpyro.sample(
+            'Psi_b',
+            #dist.Normal(0,1),
+            dist.Gamma(1,1),
+            sample_shape=(1,)
+        )
+
         
         # get horizon covariance based on the equations of sigma_h and matrixR 
         # (num_horizons by num_horizons)
-        matrixR = AR1Root(self.h_rho, self.num_horizons)
-
-        sigma_h = 1+self.Psi*jnp.sqrt(jnp.arange(self.num_horizons))
+        matrixR = AR1Root(h_rho, self.num_horizons)
+        #sigma_h = 1+0.5*jnp.sqrt(jnp.arange(self.num_horizons))
+        sigma_h = Psi_a+Psi_b*(jnp.arange(self.num_horizons))
         Sigma_eps_h_chol = jnp.matmul(jnp.diag(sigma_h), matrixR)
+       
 
 
 
@@ -344,11 +351,7 @@ class ARCHDFA():
             # isnan = jnp.isnan(y)
             y_impute = numpyro.param('y_impute', jnp.zeros(num_nans))
             y = y.at[nan_inds].set(y_impute)
-<<<<<<< HEAD
             #print(y.shape)
-=======
-            print(y.shape)
->>>>>>> b3ebbc68308654586f81672c2d1875bb7ffe3d46
 
         #with numpyro.handlers.mask(mask=mask):            
         if self.sigma_factors_model == 'constant':
