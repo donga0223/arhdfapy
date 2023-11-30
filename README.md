@@ -1,6 +1,6 @@
 # Arhdfapy
 
-A python module that interfaces with ARHDFA model https://github.com/donga0223/comparing-forecasting-performance/tree/ARVar/archdfa
+A python module that interfaces with ARHDFA model https://github.com/donga0223/Comparing-Forecast-Comparison
 
 ## Installation requirements
 ```
