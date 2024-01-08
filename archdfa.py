@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import numpyro
 from numpyro.contrib.control_flow import scan
 import numpyro.distributions as dist
-
+from scipy.stats import multivariate_normal
 
 # generate an cholesky root of an AR(1) correlation matrix 
 # The AR(1) correlation matrix has an explicit formula for the cholesky root 
@@ -23,8 +23,50 @@ def AR1Root(rho,p):
         #R[i, jnp.arange(i,p)] = R2[jnp.arange(0,p-i)]
     return jnp.transpose(R)
       
+def log_likelihoods(intercept, zHmean, Omega_tl, obs, num_samples, num_chains, thinning):
+    log_likelihood = jnp.zeros((int(num_samples*num_chains/thinning), obs.shape[0], obs.shape[1]))
+    for iter in range(int(num_samples*num_chains/thinning)):
+        means = intercept[iter,]+zHmean[iter,]
+        variances = Omega_tl[iter,:]
+        for i in range(obs.shape[0]):
+            for j in range(obs.shape[1]):
+                mean = jnp.repeat(means[i, j, :], obs.shape[2])
+                cov_matrix = variances[i, j, :, :]
+
+                # Ensure covariance matrix is positive definite
+                cov_matrix = jnp.dot(cov_matrix, cov_matrix.T)
+
+                # Create multivariate normal distribution
+                multivariate_dist = multivariate_normal(mean=mean.flatten(), cov=cov_matrix)
+
+                # Calculate log likelihood
+                #log_likelihood[iter, i, j] = multivariate_dist.logpdf(obs[i, j, :])
+                log_likelihood = log_likelihood.at[iter, i, j].set(multivariate_dist.logpdf(obs[i, j, :]))
+    return(log_likelihood)
+
+def log_likelihoods_bar(post_means_est, obs):
+    log_likelihood = jnp.zeros((obs.shape[0], obs.shape[1]))
+    means = post_means_est['intercept']+post_means_est['zHmean'][0,]
+    variances = post_means_est['Omega_tl'][0,:]
+    for i in range(obs.shape[0]):
+        for j in range(obs.shape[1]):
+            mean = jnp.repeat(means[i, j, :], obs.shape[2])
+            cov_matrix = variances[i, j, :, :]
+
+            # Ensure covariance matrix is positive definite
+            cov_matrix = jnp.dot(cov_matrix, cov_matrix.T)
+
+            # Create multivariate normal distribution
+            multivariate_dist = multivariate_normal(mean=mean.flatten(), cov=cov_matrix)
+
+            # Calculate log likelihood
+            #log_likelihood[i, j] = multivariate_dist.logpdf(obs[i, j, :])
+            log_likelihood = log_likelihood.at[i, j].set(multivariate_dist.logpdf(obs[i, j, :]))
+    D_theta_bar = -2 * jnp.sum(log_likelihood)
+    return(D_theta_bar)
 
 
+    
 class ARCHDFA():
     '''
     Class representing a dynamic factor analysis model where the latent factors
@@ -317,7 +359,7 @@ class ARCHDFA():
 
             # sample factors at time t, shape (1, num_factors)
             if self.sigma_factors_model == 'constant':
-                factors_t = numpyro.sample('factors', dist.Normal(m_t, log_sigma_eta_t))
+                factors_t = numpyro.sample('factors', dist.Normal(m_t, jnp.exp(log_sigma_eta_t)))
             elif self.sigma_factors_model == 'AR':
                 factors_t = numpyro.sample('factors', dist.Normal(m_t, jnp.exp(log_sigma_eta_t[timepoint,0])))
 
@@ -338,6 +380,7 @@ class ARCHDFA():
         ## zHmean_trans transpose the order. (num_timepoints, num_series, num_horizons)
         zHmean = jnp.matmul(z_t, jnp.transpose(factor_loadings))
         zHmean = zHmean.reshape(zHmean.shape + (1,))
+        numpyro.deterministic('zHmean', zHmean) 
                    
         #mask = True 
         #if y is not None:
@@ -356,13 +399,20 @@ class ARCHDFA():
         #with numpyro.handlers.mask(mask=mask):            
         if self.sigma_factors_model == 'constant':
             #The variance of observation noise when factors model is constant
-            log_sigma_eps = numpyro.sample(
-                'log_sigma_eps',
-                dist.HalfNormal(1),
-                sample_shape=(self.num_timesteps, self.num_series, self.num_horizons))
+            log_sigma_eps_t = numpyro.sample('log_sigma_eps_t',
+                dist.HalfNormal(1), sample_shape=(1,1))
+            #The variance of different series(locations)
+            sigma_eps_l = numpyro.sample('sigma_eps_l',
+                dist.HalfNormal(1), sample_shape=(self.num_series,1))
+
+            sigma_tl = jnp.matmul(jnp.exp(log_sigma_eps_t), jnp.transpose(sigma_eps_l))  
+            sigma_tl_reshape = sigma_tl.reshape(sigma_tl.shape + (1,1,))
+            Sigma_eps_h_chol_reshape = Sigma_eps_h_chol.reshape((1,1,) + Sigma_eps_h_chol.shape)
+            Omega_tl = sigma_tl_reshape * Sigma_eps_h_chol_reshape       
+        
             numpyro.sample(
                 'y',
-                dist.Normal(loc=intercept + zHmean, scale=log_sigma_eps),  
+                dist.MultivariateNormal(loc=intercept + zHmean, scale_tril=Omega_tl),
                 obs=y)
 
         elif self.sigma_factors_model == 'AR':
@@ -377,15 +427,18 @@ class ARCHDFA():
             sigma_tl_reshape = sigma_tl.reshape(sigma_tl.shape + (1,1,))
             Sigma_eps_h_chol_reshape = Sigma_eps_h_chol.reshape((1,1,) + Sigma_eps_h_chol.shape)
             Omega_tl = sigma_tl_reshape * Sigma_eps_h_chol_reshape       
-        
+            numpyro.deterministic('Omega_tl', Omega_tl)  
+
             numpyro.sample(
                 'y',
                 dist.MultivariateNormal(loc=intercept + zHmean, scale_tril=Omega_tl),
                 obs=y)
+
+            
                     
 
     
-    def fit(self, y, rng_key, num_warmup=1000, num_samples=1000, num_chains=1,
+    def fit(self, y, rng_key, num_warmup=1000, num_samples=1000, num_chains=1,thinning=1,
             print_summary=False):
         '''
         Fit model using MCMC
@@ -416,6 +469,7 @@ class ARCHDFA():
             num_warmup=num_warmup,
             num_samples=num_samples,
             num_chains=num_chains,
+            thinning=thinning,
             progress_bar=False if 'NUMPYRO_SPHINXBUILD' in os.environ else True,
         )
         self.mcmc.run(rng_key, y=y, nan_inds=jnp.nonzero(jnp.isnan(y)), num_nans=int(jnp.isnan(y).sum()))
@@ -454,4 +508,6 @@ class ARCHDFA():
                                                   posterior_samples=condition)
         
         return predictive(rng_key)
+
+    
 
