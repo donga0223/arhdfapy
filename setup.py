@@ -13,5 +13,5 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     include_package_data=True,
     url="https://github.com/donga0223/comparing-forecasting-performance/archdfa",
-    packages=['arhdfa'],
+    py_modules=['archdfa']
 )
