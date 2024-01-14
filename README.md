@@ -22,7 +22,7 @@ pip install numpyro
 Install Arhdfapy with the following command:
 
 ```
-pip install git+https://github.com/donga0223/comparing-forecasting-performance/arhdfapy/
+pip install git+https://github.com/donga0223/arhdfapy/
 ```
 
 ## Usage
