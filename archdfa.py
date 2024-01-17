@@ -22,49 +22,27 @@ def AR1Root(rho,p):
         R = R.at[i, jnp.arange(i,p)].set(R2[jnp.arange(0,p-i)])
         #R[i, jnp.arange(i,p)] = R2[jnp.arange(0,p-i)]
     return jnp.transpose(R)
-      
+
+
 def log_likelihoods(intercept, zHmean, Omega_tl, obs, num_samples, num_chains, thinning):
     log_likelihood = jnp.zeros((int(num_samples*num_chains/thinning), obs.shape[0], obs.shape[1]))
-    for iter in range(int(num_samples*num_chains/thinning)):
-        means = intercept[iter,]+zHmean[iter,]
-        variances = Omega_tl[iter,:]
-        for i in range(obs.shape[0]):
-            for j in range(obs.shape[1]):
-                mean = jnp.repeat(means[i, j, :], obs.shape[2])
-                cov_matrix = variances[i, j, :, :]
 
-                # Ensure covariance matrix is positive definite
-                cov_matrix = jnp.dot(cov_matrix, cov_matrix.T)
-
-                # Create multivariate normal distribution
-                multivariate_dist = multivariate_normal(mean=mean.flatten(), cov=cov_matrix)
-
-                # Calculate log likelihood
-                #log_likelihood[iter, i, j] = multivariate_dist.logpdf(obs[i, j, :])
-                log_likelihood = log_likelihood.at[iter, i, j].set(multivariate_dist.logpdf(obs[i, j, :]))
+    intercept_shape = intercept.reshape(int(num_samples*num_chains/thinning), 1, 1, 1)
+    
+    means = intercept_shape+zHmean
+    multivariate_dist = dist.MultivariateNormal(loc=intercept_shape + zHmean, scale_tril=Omega_tl)
+    log_likelihood = multivariate_dist.log_prob(obs)
     return(log_likelihood)
+
 
 def log_likelihoods_bar(post_means_est, obs):
     log_likelihood = jnp.zeros((obs.shape[0], obs.shape[1]))
     means = post_means_est['intercept']+post_means_est['zHmean'][0,]
     variances = post_means_est['Omega_tl'][0,:]
-    for i in range(obs.shape[0]):
-        for j in range(obs.shape[1]):
-            mean = jnp.repeat(means[i, j, :], obs.shape[2])
-            cov_matrix = variances[i, j, :, :]
-
-            # Ensure covariance matrix is positive definite
-            cov_matrix = jnp.dot(cov_matrix, cov_matrix.T)
-
-            # Create multivariate normal distribution
-            multivariate_dist = multivariate_normal(mean=mean.flatten(), cov=cov_matrix)
-
-            # Calculate log likelihood
-            #log_likelihood[i, j] = multivariate_dist.logpdf(obs[i, j, :])
-            log_likelihood = log_likelihood.at[i, j].set(multivariate_dist.logpdf(obs[i, j, :]))
+    multivariate_dist = dist.MultivariateNormal(loc=means, scale_tril=variances)
+    log_likelihood = multivariate_dist.log_prob(obs)
     D_theta_bar = -2 * jnp.sum(log_likelihood)
     return(D_theta_bar)
-
 
     
 class ARCHDFA():
