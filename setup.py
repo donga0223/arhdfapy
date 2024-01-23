@@ -12,6 +12,6 @@ setuptools.setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     include_package_data=True,
-    url="https://github.com/donga0223/Comparing-Forecasting-Performance/arhdfa",
+    url="https://github.com/donga0223/arhdfa",
     py_modules=['arhdfa']
 )
