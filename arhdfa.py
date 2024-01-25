@@ -45,7 +45,7 @@ def log_likelihoods_bar(post_means_est, obs):
     return(D_theta_bar)
 
     
-class ARCHDFA():
+class ARHDFA():
     '''
     Class representing a dynamic factor analysis model where the latent factors
     follow an autoregressive, conditional heteroskedastic [not yet implemented] model
@@ -387,7 +387,7 @@ class ARCHDFA():
             sigma_tl_reshape = sigma_tl.reshape(sigma_tl.shape + (1,1,))
             Sigma_eps_h_chol_reshape = Sigma_eps_h_chol.reshape((1,1,) + Sigma_eps_h_chol.shape)
             Omega_tl = sigma_tl_reshape * Sigma_eps_h_chol_reshape       
-        
+            numpyro.deterministic('Omega_tl', Omega_tl)  
             numpyro.sample(
                 'y',
                 dist.MultivariateNormal(loc=intercept + zHmean, scale_tril=Omega_tl),
