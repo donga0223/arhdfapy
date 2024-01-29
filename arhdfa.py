@@ -41,7 +41,7 @@ def log_likelihoods_bar(post_means_est, obs):
     variances = post_means_est['Omega_tl'][0,:]
     multivariate_dist = dist.MultivariateNormal(loc=means, scale_tril=variances)
     log_likelihood = multivariate_dist.log_prob(obs)
-    D_theta_bar = -2 * jnp.sum(log_likelihood)
+    D_theta_bar = -2 * jnp.nansum(log_likelihood)
     return(D_theta_bar)
 
     
